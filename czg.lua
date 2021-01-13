@@ -1,4 +1,9 @@
 local DHI = {}			--- DAMAGE HIT ITERATOR
+DHI.instances.IDM = 0
+DHI.instances.UA = 0
+DHI.instances.SH = 0
+DHI.instances.PC = 0
+
 DHI.spell = nil
 local DHIList = {}
 
@@ -7,8 +12,10 @@ DHI.UA = {roll = {80,75,70,50}, inc = {1.05,1.15,1.25,1.5}}
 DHI.SH = {}				-- Spell hit
 DHI.SH[2] = {roll = {95,90,85,60}}
 DHI.PC = {}				-- Poison Counter
+DHI.PC.mobs = {}
 
 function DHI.IDM:run(t)
+	DHI.instances.IDM = DHI.instances.IDM + 1
 	local s,m = SplitSkill(t.Player.Skills[const.Skills.IdentifyMonster])
 	if math.random(0,100) > DHI.IDM.roll[m] then
 		t.Result = math.floor(t.Result * DHI.IDM.inc[m])
@@ -17,10 +24,12 @@ function DHI.IDM:run(t)
 end
 
 function DHI.IDM:destroy()
+	DHI.instances.IDM = DHI.instances.IDM - 1
 	self = nil
 end
 
 function DHI.UA:run(t)
+	DHI.instances.UA = DHI.instances.UA + 1
 	local s,m = SplitSkill(t.Player.Skills[const.Skills.Unarmed])
 	if math.random(0,100) > DHI.UA.roll[m] then
 		t.Result = math.floor(t.Result * DHI.UA.inc[m])
@@ -29,19 +38,23 @@ function DHI.UA:run(t)
 end
 
 function DHI.UA:destroy()
+	DHI.instances.UA = DHI.instances.UA - 1
 	self = nil
 end
 
 function DHI.PC:run(t)
+	DHI.instances.PC = DHI.instances.PC + 1
 
 	return t, self:destroy()
 end
 
 function DHI.PC:destroy()
+	DHI.instances.PC = DHI.instances.PC - 1
 	self = nil
 end
 
 function DHI.SH:run(t)
+	DHI.instances.SH = DHI.instances.SH + 1
 	local chanceRoll = math.random(0, 100)
 	if self.spell.Spell == 2 then
 		if chanceRoll > DHI.SH[self.spell.Spell].roll[self.spell.Mastery] then
@@ -54,6 +67,7 @@ function DHI.SH:run(t)
 end
 
 function DHI.SH:destroy()
+	DHI.instances.SH = DHI.instances.SH - 1
 	self = nil
 end
 
@@ -64,7 +78,11 @@ function DHI:new(t, data)
 	elseif t == "unarmed" then
 		item = self:create(self.UA)
 	elseif t == "poison" then
-		item = self:create(self.PC)
+		if self.instances.PC == 0 then
+			item = self:create(self.PC)
+		else
+			
+		end
 	else
 		item = self:create(self.SH)
 	end
@@ -102,7 +120,7 @@ function DHI:chainNew(spell, source)
 	if math.random(0, 100) > 75 then canHitTwice = true end
 	
 	for _,m in Game.Map.Monsters do
-		if m.HostileType == 0 or (canHitTwice and m == source.Monster) or (m.AIState == 4 or m.AIState == 5 or AIState == 11) then goto skipper end
+		if m.HostileType == 0 or canHitTwice or (m.AIState == 4 or m.AIState == 5 or AIState == 11) then goto skipper end
 		if m.X == partyPos.X and m.Y == partyPos.Y and m.Z == partyPos.Z then goto skipper end
 		
 		local mBound = math.sqrt((pos.X - m.X)^2 + (pos.Y - m.Y)^2 + (pos.Z - m.Z)^2)
@@ -157,7 +175,11 @@ function events.CalcDamageToMonster(t)
 			end
 		else
 			if DHI.spell then
-				t = DHI:new("spell", t)
+				if table.find({24, 29, 90}, DHI.spell.Spell) then
+					t = DHI:new("poison", t)
+				else
+					t = DHI:new("spell", t)
+				end
 			end
 		end
 		Game.ShowStatusText(tostring(t.Player), 50)
