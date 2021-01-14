@@ -1,4 +1,5 @@
 local DHI = {}			--- DAMAGE HIT ITERATOR
+DHI.instances = {}
 DHI.instances.IDM = 0
 DHI.instances.UA = 0
 DHI.instances.SH = 0
@@ -10,9 +11,11 @@ local DHIList = {}
 DHI.IDM = {roll = {95,85,75,50}, inc = {1.15, 1.35, 1.575, 1.85}}
 DHI.UA = {roll = {80,75,70,50}, inc = {1.05,1.15,1.25,1.5}}
 DHI.SH = {}				-- Spell hit
-DHI.SH[2] = {roll = {95,90,85,60}}
+DHI.SH[2] = {roll = {95,90,80,50}}
 DHI.PC = {}				-- Poison Counter
 DHI.PC.mobs = {}
+
+DHI.handlingChain = false
 
 function DHI.IDM:run(t)
 	DHI.instances.IDM = DHI.instances.IDM + 1
@@ -112,6 +115,10 @@ function DHI:create(source)
 end
 
 function DHI:chainNew(spell, source)
+	if spell.Spell == 2 and self.handlingChain then 
+		self.handlingChain = false
+		return
+	end
 	local closest = source.Monster
 	local pos = {X = source.Monster.X, Y = source.Monster.Y, Z = source.Monster.Z}
 	local partyPos = {X = Party.X, Y = Party.Y, Z = Party.Z}
@@ -131,13 +138,13 @@ function DHI:chainNew(spell, source)
 		end
 		::skipper::
 	end
-	
 	if (closestBounds < 4000 and closestBounds > -4000) and closest.HostileType ~= 2 then
 		if canHitTwice then
-			Game.ShowStatusText("Double " .. tostring(Game.SpellsTxt[spell.Spell].Name) .. " was cast on " .. tostring(Game.MonstersTxt[mob.Monster.Id].Name), 5)
+			Game.ShowStatusText("Double " .. tostring(Game.SpellsTxt[spell.Spell].Name) .. " was cast on " .. tostring(Game.MonstersTxt[source.Monster.Id].Name), 5)
 		end
-		evt.CastSpell(spell.Spell,spell.Mastery,spell.Skill,pos.X + movePos[spell.Spell][1],pos.Y + movePos[spell.Spell][2],pos.Z + movePos[spell.Spell][3],closest.X,closest.Y,closest.Z)
+		evt.CastSpell(spell.Spell,spell.Mastery,spell.Skill,pos.X + 25,pos.Y + 25,pos.Z + 200,closest.X,closest.Y,closest.Z)
 	end
+	self.handlingChain = true
 end
 
 function events.CalcSpellDamage(t)
@@ -145,10 +152,7 @@ function events.CalcSpellDamage(t)
 end
 
 function events.CalcDamageToMonster(t)
-	local source	
-	for _,pl in Party do
-		if t.Player == pl then source = pl end
-	end
+	local source = t.Player or nil
 	if source then
 		if t.DamageKind == const.Damage.Phys then
 			local uSkill, idSkill = 0, 0
