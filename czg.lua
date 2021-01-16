@@ -8,10 +8,15 @@ DHI.instances.PC = 0
 DHI.spell = nil
 local DHIList = {}
 
-DHI.IDM = {roll = {95,85,75,50}, inc = {1.15, 1.35, 1.575, 1.85}}
-DHI.UA = {roll = {80,75,70,50}, inc = {1.05,1.15,1.25,1.5}}
+DHI.IDM = 		{roll = {95,85,75,50}, inc = {1.15, 1.35, 1.575, 1.85}}
+DHI.UA =		{roll = {80,75,70,50}, inc = {1.05,1.15,1.25,1.5}}
 DHI.SH = {}				-- Spell hit
-DHI.SH[2] = {roll = {95,90,80,50}}
+DHI.SH[2] = 	{roll = {95,90,80,50}, bound = 3000}
+DHI.SH[11] = 	{roll = {100,100,100,80}}
+DHI.SH[20] = 	{roll = {100,100,90,50}}
+DHI.SH[22] = 	{roll = {100,100,100,70}, bound = 2500}
+DHI.SH[27] =	{roll = {100,95,80,50}}
+DHI.SH[29] =	{roll = {100,100,90,60}}
 DHI.PC = {}				-- Poison Counter
 DHI.PC.mobs = {}
 
@@ -19,10 +24,23 @@ DHI.handlingChain = false
 
 function DHI.IDM:run(t)
 	DHI.instances.IDM = DHI.instances.IDM + 1
+	local didNotKill = t.Result < t.Monster.HP and true or false
 	local s,m = SplitSkill(t.Player.Skills[const.Skills.IdentifyMonster])
-	if math.random(0,100) > DHI.IDM.roll[m] then
-		t.Result = math.floor(t.Result * DHI.IDM.inc[m])
+	if didNotKill then
+		if math.random(0,100) > DHI.IDM.roll[m] then
+			t.Result = math.floor(t.Result * DHI.IDM.inc[m])
+			if t.Result > t.Monster.HP then
+				Game.ShowStatusText("Critical! " .. tostring(t.Player.Name) .. " dealt " .. tostring(t.Result) .. " damage to " .. tostring(Game.MonstersTxt[t.Monster.Id].Name .. ", killing them!"),5)
+				
+				t.Monster.HP, t.Monster.HitPoints = 0, 0								
+				t.Monster.AIState = 4
+				mem.call(0x42694B, 1, Game.MonstersTxt[t.Monster.Id].Experience)
+			else
+				Game.ShowStatusText("Critical! " .. tostring(t.Player.Name) .. " dealt " .. tostring(t.Result) .. " damage to " .. tostring(Game.MonstersTxt[t.Monster.Id].Name), 5)
+			end
+		end
 	end
+	
 	return t, self:destroy()
 end
 
@@ -33,9 +51,21 @@ end
 
 function DHI.UA:run(t)
 	DHI.instances.UA = DHI.instances.UA + 1
+	local didNotKill = t.Result < t.Monster.HP and true or false
 	local s,m = SplitSkill(t.Player.Skills[const.Skills.Unarmed])
-	if math.random(0,100) > DHI.UA.roll[m] then
-		t.Result = math.floor(t.Result * DHI.UA.inc[m])
+	if didNotKill then
+		if math.random(0,100) > DHI.UA.roll[m] then
+			t.Result = math.floor(t.Result * DHI.UA.inc[m])
+			if t.Result > t.Monster.HP then
+				Game.ShowStatusText("Critical! " .. tostring(t.Player.Name) .. " dealt " .. tostring(t.Result) .. " damage to " .. tostring(Game.MonstersTxt[t.Monster.Id].Name .. ", killing them!"),5)
+				
+				t.Monster.HP, t.Monster.HitPoints = 0, 0								
+				t.Monster.AIState = 4
+				mem.call(0x42694B, 1, Game.MonstersTxt[t.Monster.Id].Experience)
+			else
+				Game.ShowStatusText("Critical! " .. tostring(t.Player.Name) .. " dealt " .. tostring(t.Result) .. " damage to " .. tostring(Game.MonstersTxt[t.Monster.Id].Name), 5)
+			end
+		end
 	end
 	return t, self:destroy()
 end
@@ -58,13 +88,29 @@ end
 
 function DHI.SH:run(t)
 	DHI.instances.SH = DHI.instances.SH + 1
-	local chanceRoll = math.random(0, 100)
-	if self.spell.Spell == 2 then
-		if chanceRoll > DHI.SH[self.spell.Spell].roll[self.spell.Mastery] then
-			DHI:chainNew(self.spell, t)
+	local chance = math.random(0, 100)
+	local s, m, sk = self.spell.Spell, self.spell.Mastery. self.spell.Skill
+	if s == 2												-- Fire Bolt
+		if chance > DHI.SH[s].roll[m] + (t.Monster.FireResistance - sk) then
+			DHI:chainNew(self.spell, t, false)
 		end
-	elseif self.spell.Spell == 22 then
-	
+	elseif spell.Spell == 11 then 							-- Incinerate
+		if chance > DHI.SH[s].roll[m] + (t.Monster.FireResistance - sk) then
+			local Buff = t.Monster.SpellBuffs[const.MonsterBuff.ArmorHalved]
+			Buff.ExpireTime = math.max(Game.Time + const.Minute*sk, Buff.ExpireTime)
+		end
+	elseif spell.Spell == 20 then							-- Implosion
+		DHI:suckNearbyTo(t)
+	elseif s == 22 then										-- Lightning Bolt
+		if chance > DHI.SH[s].roll[m] + (t.Monster.AirResistance - sk) then
+			DHI:chainNew(self.spell, t, false)
+		end
+	elseif spell.Spell == 37 or spell.Spell == 39 then		-- Blades / Rock Blast
+		if chance > DHI.SH[s].roll[m] + (t.Monster.EarthResistance - sk) then
+			local Buff = t.Monster.SpellBuffs[const.MonsterBuff.Slow]
+			Buff.ExpireTime = math.max(Game.Time + const.Minute*sk, Buff.ExpireTime)
+		end
+	else
 	end
 	return t, self:destroy()
 end
@@ -114,37 +160,64 @@ function DHI:create(source)
     return copy
 end
 
-function DHI:chainNew(spell, source)
-	if spell.Spell == 2 and self.handlingChain then 
-		self.handlingChain = false
-		return
+function DHI:chainNew(spell, source, lb)
+	if self.handlingChain then 
+		local dOC = math.random(1,100)
+		if spell.Spell == 2 then dOC = 100 end
+		if dOC > 33 then
+			self.handlingChain = false
+			return
+		end
 	end
-	local closest = source.Monster
-	local pos = {X = source.Monster.X, Y = source.Monster.Y, Z = source.Monster.Z}
-	local partyPos = {X = Party.X, Y = Party.Y, Z = Party.Z}
+	local target = source.Monster
+	local sourcePos = {X = target.X, Y = target.Y, Z = target.Z}
 	local closestBounds = 0
-	local canHitTwice = false
-	if math.random(0, 100) > 75 then canHitTwice = true end
+	local canHitTwice = math.random(0, 100) > 75 and true or false
 	
 	for _,m in Game.Map.Monsters do
 		if m.HostileType == 0 or canHitTwice or (m.AIState == 4 or m.AIState == 5 or AIState == 11) then goto skipper end
-		if m.X == partyPos.X and m.Y == partyPos.Y and m.Z == partyPos.Z then goto skipper end
+		if m.X == Party.X and m.Y == Party.Y and m.Z == Party.Z then goto skipper end
 		
-		local mBound = math.sqrt((pos.X - m.X)^2 + (pos.Y - m.Y)^2 + (pos.Z - m.Z)^2)
+		local mBound = math.sqrt((sourcePos.X - m.X)^2 + (sourcePos.Y - m.Y)^2 + (sourcePos.Z - m.Z)^2)
 		
 		if closestBounds < mBound then 
 			closestBounds = mBound
-			closest = m
+			target = m
 		end
 		::skipper::
 	end
-	if (closestBounds < 4000 and closestBounds > -4000) and closest.HostileType ~= 2 then
+	if (closestBounds < DHI.SH[spell.Spell].bound and closestBounds > -DHI.SH[spell.Spell].bound) and target.HostileType ~= 2 then
 		if canHitTwice then
 			Game.ShowStatusText("Double " .. tostring(Game.SpellsTxt[spell.Spell].Name) .. " was cast on " .. tostring(Game.MonstersTxt[source.Monster.Id].Name), 5)
 		end
-		evt.CastSpell(spell.Spell,spell.Mastery,spell.Skill,pos.X + 25,pos.Y + 25,pos.Z + 200,closest.X,closest.Y,closest.Z)
+		evt.CastSpell(spell.Spell,spell.Mastery,spell.Skill,sourcePos.X + 25,sourcePos.Y + 25,sourcePos.Z + 200,target.X,target.Y,target.Z)
 	end
-	self.handlingChain = true
+	if not lb then self.handlingChain = true end
+end
+
+function DHI:suckNearbyTo(t)
+	local mob = t.Monster
+	local pos = {X = mob.X, Y = mob.Y, Z = mob.Z}
+	
+	for _,m in Game.Map.Monsters do
+		if m.HostileType == 0 then goto suckSkip end
+		if m == mob then goto suckSkip end
+		if m.AIState == 4 or m.AIState == 5 or AIState == 11 then goto suckSkip end
+		local mBound = math.sqrt((pos.X - m.X)^2 + (pos.Y - m.Y)^2 + (pos.Z - m.Z)^2)
+		local newPos = {X = 0, Y = 0, Z = 0}
+		
+		if mBound < 1200 then
+			if mob.X > m.X then newPos.X = m.X + 100 else newPos.X = m.X - 100 end
+			if mob.Y > m.Y then newPos.Y = m.Y + 100 else newPos.Y = m.Y - 100 end
+		
+			if newPos.X ~= nil then
+				m.X = newPos.X
+				m.Y = newPos.Y
+			end
+		end
+		::suckSkip::
+	end
+	return
 end
 
 function events.CalcSpellDamage(t)
